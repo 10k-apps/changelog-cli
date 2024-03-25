@@ -1,0 +1,117 @@
+#!/usr/bin/env ruby
+require 'slop'
+require 'date'
+
+VERSION = "0.0.1"
+DEFAULT_FILENAMES = [".changelog", "CHANGELOG"]
+GLOBAL_CHANGELOG = "~/#{DEFAULT_FILENAMES.first}"
+
+def default_changelog
+  possible_files = DEFAULT_FILENAMES.map { |f| File.expand_path "./#{f}" }
+  local_file = possible_files.find { |f| File.exists? f }
+
+  local_file || GLOBAL_CHANGELOG
+end
+
+def editor_available?(editor)
+  system("which #{editor} > /dev/null 2>&1")
+end
+
+def open_in_default_editor(filepath)
+  editor = [ENV['EDITOR'], 'nano', 'vi'].find { |e| editor_available?(e) }
+
+  if editor
+    system("#{editor} #{filepath}")
+  else
+    puts "ERROR: No editor found"
+  end
+end
+
+def add_line(file, line, modify = false)
+  today = Date.today.strftime("# %B %dth, %Y")
+  entry_exists = false
+  new_content  = ""
+
+  prev_line = nil
+  new_line  = "- #{line}"
+
+  if File.exist? file
+    content = File.read file
+
+    if modify
+      lines = content.lines
+      prev_line = lines.last
+      puts prev_line
+      # Attempt to replace the last line starting with "- "
+      # last_index = lines.rindex { |l| l.strip.start_with?("- ") }
+      # if last_index
+      #   lines[last_index] = "- #{line}\n"
+      #   content = lines.join
+      # end
+      new_content = content
+
+    else # fresh
+      entry_exists = content.include? today
+      new_content = content.chomp
+      new_content += "\n\n---\n\n" unless entry_exists
+    end
+
+  else # new file
+    new_content = "CHANGELOG\n---\n\n"
+  end
+
+  unless modify
+    new_content += today unless entry_exists
+    new_content += "\n#{new_line}\n"
+  end
+
+  # WRITE
+  File.write(file, new_content)
+
+  # FEEDBACK
+  unless modify
+    puts "\n#{file}:"
+    puts "  #{new_line}"
+
+  else # modify
+    puts "MODIFY [#{file}], REPLACE:"
+    puts prev_line
+    puts "WITH:"
+    puts new_line
+  end
+end
+
+opts = Slop.parse do |o|
+  o.string '-f', '--file', 'changelog filepath', default: default_changelog
+  o.bool '-g', '--global', "overrides --file to use the global changelog at '#{GLOBAL_CHANGELOG}'"
+  o.bool '-m', '--modify', 'modify the last line logged'
+  o.bool '-o', '--open', 'open the changelog in default editor'
+  o.bool '--where', 'prints current changelog (can be used with -g)'
+  o.on '--version', 'print the version' do
+    puts VERSION
+    exit
+  end
+  o.on '--help', 'print this help message' do
+    puts o
+    exit
+  end
+end
+
+# RUN
+#
+
+changelog_file = File.expand_path(opts.global? ? GLOBAL_CHANGELOG : opts[:file])
+
+if opts.where?
+  puts "CHANGELOG: #{changelog_file}"
+  exit
+end
+
+if !opts.arguments.empty?
+  line = opts.arguments.join " "
+  add_line(changelog_file, line, opts.modify?)
+end
+
+open_in_default_editor(changelog_file) if opts.open?
+
+puts opts if ARGV.empty?
